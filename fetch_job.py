@@ -6,6 +6,11 @@ app = FastAPI()
 
 FEED_URL = "https://www.arbeitnow.com/api/job-board-api"
 
+MY_SKILLS = [
+    "python", "fastapi", "react", "postgresql", 
+    "sql", "javascript", "tailwind", "git", "jwt", "rest api"
+]
+
 def init_db():
     """Initialize the SQLite database and create the jobs table."""
     conn = sqlite3.connect("jobs.db")

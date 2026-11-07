@@ -1,0 +1,4 @@
+carrier/
+__pycache__/
+*.db
+.env

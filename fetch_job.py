@@ -8,10 +8,9 @@ app = FastAPI()
 
 FEED_URL = "https://www.arbeitnow.com/api/job-board-api"
 
-# Configure Gemini API (Ensure you set your GEMINI_API_KEY environment variable)
+# Configure Gemini API
 # genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-# 1. Define Your Master Skill List & Profile Context
 MY_SKILLS = [
     "python", "fastapi", "react", "postgresql", 
     "sql", "javascript", "tailwind", "git", "jwt", "rest api"
@@ -151,10 +150,7 @@ def get_top_matches(threshold: int = 40):
 
 @app.post("/jobs/{job_id}/tailor")
 def tailor_application(job_id: int):
-    """
-    Milestone 8: Fetches a specific job, prompts Gemini API with Yogendra's profile,
-    and saves the tailored output as a DRAFT application awaiting human approval.
-    """
+    """Generates a tailored application package via Gemini and stores it as a DRAFT."""
     conn = sqlite3.connect("jobs.db")
     cursor = conn.cursor()
     cursor.execute("SELECT id, title, company FROM jobs WHERE id = ?", (job_id,))
@@ -166,7 +162,6 @@ def tailor_application(job_id: int):
         
     _, title, company = job
     
-    # Construct LLM Prompt
     prompt = (
         f"You are an assistant helping Yogendra apply for a job.\n\n"
         f"Here is the Job: {title} at {company}.\n"
@@ -175,14 +170,12 @@ def tailor_application(job_id: int):
         f"Write a concise 2-paragraph tailored cover letter and a brief 1-sentence pitch summary connecting Yogendra's real experience directly to what this role needs. Do NOT invent fake projects."
     )
     
-    # Call Gemini API (Fallback to simulation if API key isn't configured yet)
     try:
-        model = genai.GenerativeModel('gemini-3.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(prompt)
         cover_letter = response.text
         pitch_summary = f"Tailored pitch for {title} at {company} emphasizing full-stack Python/FastAPI capabilities."
     except Exception:
-        # Fallback generator if API key is not active in environment during local testing
         pitch_summary = f"Strong alignment for {title} at {company} utilizing Python and backend expertise."
         cover_letter = (
             f"Dear Hiring Manager at {company},\n\n"
@@ -191,7 +184,6 @@ def tailor_application(job_id: int):
             f"to contribute effectively to your engineering team...\n\nBest regards,\nYogendra"
         )
     
-    # Save into applications table with DRAFT status (Human Approval Gate)
     conn = sqlite3.connect("jobs.db")
     cursor = conn.cursor()
     cursor.execute("""
@@ -212,45 +204,83 @@ def tailor_application(job_id: int):
     }
 
 @app.get("/applications")
-def get_applications(status: str = None):
-    """View all tracked applications, optionally filtered by status."""
+def get_applications():
+    """
+    Milestone 9.1: Uses a SQL JOIN to fetch applications 
+    alongside their corresponding job title and company name.
+    """
     conn = sqlite3.connect("jobs.db")
     cursor = conn.cursor()
-    if status:
-        cursor.execute("""
-            SELECT a.id, j.title, j.company, a.cover_letter, a.pitch_summary, a.status, a.created_at
-            FROM applications a JOIN jobs j ON a.job_id = j.id WHERE a.status = ?
-        """, (status.upper(),))
-    else:
-        cursor.execute("""
-            SELECT a.id, j.title, j.company, a.cover_letter, a.pitch_summary, a.status, a.created_at
-            FROM applications a JOIN jobs j ON a.job_id = j.id
-        """)
+    
+    cursor.execute("""
+        SELECT applications.id, jobs.title, jobs.company, applications.cover_letter, applications.status
+        FROM applications
+        JOIN jobs ON applications.job_id = jobs.id
+    """)
     rows = cursor.fetchall()
     conn.close()
     
+    applications_list = []
+    for row in rows:
+        applications_list.append({
+            "application_id": row[0],
+            "job_title": row[1],
+            "company": row[2],
+            "cover_letter": row[3],
+            "status": row[4]
+        })
+        
     return {
         "status": "success",
-        "applications": [{
-            "application_id": r[0], "job_title": r[1], "company": r[2],
-            "cover_letter": r[3], "pitch_summary": r[4], "status": r[5], "created_at": r[6]
-        } for r in rows]
+        "total_applications": len(applications_list),
+        "applications": applications_list
     }
 
-@app.patch("/applications/{app_id}/approve")
+@app.post("/applications/{app_id}/approve")
 def approve_application(app_id: int):
-    """Human approval gate: moves application status from DRAFT to APPROVED."""
+    """Milestone 9.2: Human GO button to approve a draft application."""
     conn = sqlite3.connect("jobs.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT id, status FROM applications WHERE id = ?", (app_id,))
-    app_row = cursor.fetchone()
     
-    if not app_row:
+    # Check if application exists and fetch company info for message
+    cursor.execute("""
+        SELECT applications.id, jobs.company 
+        FROM applications 
+        JOIN jobs ON applications.job_id = jobs.id 
+        WHERE applications.id = ?
+    """, (app_id,))
+    row = cursor.fetchone()
+    
+    if not row:
         conn.close()
-        raise HTTPException(status_code=404, detail="Application draft not found")
+        raise HTTPException(status_code=404, detail="Application not found")
         
+    company_name = row[1]
+    
+    # Update status to APPROVED
     cursor.execute("UPDATE applications SET status = 'APPROVED' WHERE id = ?", (app_id,))
     conn.commit()
     conn.close()
     
-    return {"status": "success", "message": f"Application #{app_id} has been approved and is ready for submission!"}
+    return {
+        "status": f"Application #{app_id} APPROVED for {company_name}! Ready to send."
+    }
+
+@app.post("/applications/{app_id}/reject")
+def reject_application(app_id: int):
+    """Milestone 9.3: Rejects an application draft if it doesn't fit."""
+    conn = sqlite3.connect("jobs.db")
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT id FROM applications WHERE id = ?", (app_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Application not found")
+        
+    cursor.execute("UPDATE applications SET status = 'REJECTED' WHERE id = ?", (app_id,))
+    conn.commit()
+    conn.close()
+    
+    return {
+        "status": f"Application #{app_id} REJECTED"
+    }

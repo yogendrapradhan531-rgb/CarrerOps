@@ -32,27 +32,45 @@ def init_db():
 # Run database initialization when the app starts
 init_db()
 
-# 2. Create the Scoring Function
+# 2. Create the Scoring Function with Bonus & Penalty Rules
 def calculate_score(title: str) -> int:
     """
-    Calculates a deterministic match score (0% to 100%) 
-    based on how many MY_SKILLS appear in the job title.
+    Calculates a deterministic match score (0% to 100%) based on skills,
+    plus a junior bonus or senior penalty.
     """
     if not title:
         return 0
         
-    # Convert title to lowercase for case-insensitive matching
     lower_title = title.lower()
     
-    # Count how many of your MY_SKILLS appear in the text
+    # Base skill matching score
     matches = 0
     for skill in MY_SKILLS:
         if skill in lower_title:
             matches += 1
             
-    # Calculate percentage score
-    score = (matches / len(MY_SKILLS)) * 100
-    return int(score)
+    base_score = (matches / len(MY_SKILLS)) * 100
+    
+    # Define Junior keywords for bonus
+    junior_keywords = ["fresher", "junior", "intern", "associate", "entry"]
+    # Define Senior keywords for penalty
+    senior_keywords = ["senior", "lead", "staff", "architect", "5+ years", "director", "head"]
+    
+    # Apply Junior Bonus (+20%)
+    for word in junior_keywords:
+        if word in lower_title:
+            base_score += 20
+            break
+            
+    # Apply Senior Penalty (-50% or cut in half)
+    for word in senior_keywords:
+        if word in lower_title:
+            base_score = base_score * 0.5
+            break
+            
+    # Ensure score stays between 0 and 100
+    final_score = max(0, min(int(base_score), 100))
+    return final_score
 
 @app.post("/sync")
 def sync_jobs():
@@ -104,7 +122,7 @@ def sync_jobs():
 
 @app.get("/jobs")
 def get_saved_jobs(keyword: str = None):
-    """Reads saved jobs from SQLite, calculates match scores, and returns them sorted."""
+    """Reads saved jobs from SQLite, calculates match scores with rules, and sorts them."""
     conn = sqlite3.connect("jobs.db")
     cursor = conn.cursor()
     
@@ -120,7 +138,6 @@ def get_saved_jobs(keyword: str = None):
     rows = cursor.fetchall()
     conn.close()
     
-    # Format rows and add the match score to each job dictionary
     jobs_list = []
     for row in rows:
         title = row[1]
@@ -133,11 +150,11 @@ def get_saved_jobs(keyword: str = None):
             "location": row[3],
             "url": row[4],
             "remote": row[5],
-            "match_score": f"{score}%"  # Added match score!
+            "match_score": f"{score}%"
         }
         jobs_list.append(job_dict)
         
-    # Optional: Sort jobs from highest match score to lowest
+    # Sort from highest match score to lowest
     jobs_list = sorted(jobs_list, key=lambda x: int(x["match_score"].replace("%", "")), reverse=True)
     
     return {

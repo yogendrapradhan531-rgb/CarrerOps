@@ -1,28 +1,31 @@
-import json
-import urllib.request
+from fastapi import FastAPI
+import requests
 
-# Target endpoint
-url = "https://www.arbeitnow.com/api/job-board-api"
+app = FastAPI()
 
-# Set a User-Agent header (good practice for public APIs)
-req = urllib.request.Request(
-    url, 
-    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-)
+FEED_URL = "https://www.arbeitnow.com/api/job-board-api"
 
-# Send request and parse response
-with urllib.request.urlopen(req) as response:
-    raw_data = response.read().decode("utf-8")
-    payload = json.loads(raw_data)
-
-# Extract and inspect jobs
-jobs = payload.get("data", [])
-
-print(f"Retrieved {len(jobs)} jobs from page 1:\n")
-for job in jobs[:5]:  # Display first 5 jobs
-    print(f"Title:    {job.get('title')}")
-    print(f"Company:  {job.get('company_name')}")
-    print(f"Location: {job.get('location')}")
-    print(f"Remote:   {job.get('remote')}")
-    print(f"URL:      {job.get('url')}")
-    print("-" * 40)
+@app.get("/jobs")
+def get_jobs():
+    response = requests.get(FEED_URL)
+    print(f"API Status Code: {response.status_code}")
+    
+    # 1. Extract the raw job list under the key "data"
+    raw_jobs = response.json().get("data", [])
+    
+    # 2. Create an empty list
+    cleaned_jobs = []
+    
+    # 3. Loop through raw jobs and extract the 5 essential fields
+    for job in raw_jobs:
+        clean_job = {
+            "title": job.get("title"),
+            "company": job.get("company_name"),
+            "location": job.get("location"),
+            "url": job.get("url"),
+            "remote": job.get("remote")
+        }
+        cleaned_jobs.append(clean_job)
+        
+    # 4. Return cleaned_jobs instead of the raw response
+    return cleaned_jobs

@@ -8,7 +8,7 @@ FEED_URL = "https://www.arbeitnow.com/api/job-board-api"
 
 # 1. Define Your Master Skill List
 MY_SKILLS = [
-    "python", "fastapi", "react", "postgresql", 
+    "python","java","fastapi","flask","mongodb","react", "postgresql", 
     "sql", "javascript", "tailwind", "git", "jwt", "rest api"
 ]
 

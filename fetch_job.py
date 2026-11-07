@@ -8,7 +8,7 @@ FEED_URL = "https://www.arbeitnow.com/api/job-board-api"
 
 # 1. Define Your Master Skill List
 MY_SKILLS = [
-    "python","java","fastapi","flask","mongodb","react", "postgresql", 
+    "python", "fastapi", "react", "postgresql", 
     "sql", "javascript", "tailwind", "git", "jwt", "rest api"
 ]
 
@@ -32,45 +32,40 @@ def init_db():
 # Run database initialization when the app starts
 init_db()
 
-# 2. Create the Scoring Function with Bonus & Penalty Rules
-def calculate_score(title: str) -> int:
+def calculate_score_and_skills(title: str):
     """
-    Calculates a deterministic match score (0% to 100%) based on skills,
-    plus a junior bonus or senior penalty.
+    Calculates score (0-100%) with bonus/penalties and 
+    returns BOTH the final score and the list of matched skills.
     """
     if not title:
-        return 0
+        return 0, []
         
     lower_title = title.lower()
     
-    # Base skill matching score
-    matches = 0
+    # Track which specific skills were found
+    matched_skills = []
     for skill in MY_SKILLS:
         if skill in lower_title:
-            matches += 1
+            matched_skills.append(skill)
             
-    base_score = (matches / len(MY_SKILLS)) * 100
+    base_score = (len(matched_skills) / len(MY_SKILLS)) * 100
     
-    # Define Junior keywords for bonus
+    # Junior Bonus & Senior Penalty Rules
     junior_keywords = ["fresher", "junior", "intern", "associate", "entry"]
-    # Define Senior keywords for penalty
     senior_keywords = ["senior", "lead", "staff", "architect", "5+ years", "director", "head"]
     
-    # Apply Junior Bonus (+20%)
     for word in junior_keywords:
         if word in lower_title:
             base_score += 20
             break
             
-    # Apply Senior Penalty (-50% or cut in half)
     for word in senior_keywords:
         if word in lower_title:
             base_score = base_score * 0.5
             break
             
-    # Ensure score stays between 0 and 100
     final_score = max(0, min(int(base_score), 100))
-    return final_score
+    return final_score, matched_skills
 
 @app.post("/sync")
 def sync_jobs():
@@ -122,7 +117,7 @@ def sync_jobs():
 
 @app.get("/jobs")
 def get_saved_jobs(keyword: str = None):
-    """Reads saved jobs from SQLite, calculates match scores with rules, and sorts them."""
+    """Reads all saved jobs from SQLite and returns them with scores and matched skills."""
     conn = sqlite3.connect("jobs.db")
     cursor = conn.cursor()
     
@@ -140,26 +135,97 @@ def get_saved_jobs(keyword: str = None):
     
     jobs_list = []
     for row in rows:
-        title = row[1]
-        score = calculate_score(title)
-        
-        job_dict = {
+        score, matched_skills = calculate_score_and_skills(row[1])
+        jobs_list.append({
             "id": row[0],
-            "title": title,
+            "title": row[1],
             "company": row[2],
             "location": row[3],
             "url": row[4],
             "remote": row[5],
-            "match_score": f"{score}%"
-        }
-        jobs_list.append(job_dict)
+            "match_score": f"{score}%",
+            "matched_skills": matched_skills
+        })
         
-    # Sort from highest match score to lowest
     jobs_list = sorted(jobs_list, key=lambda x: int(x["match_score"].replace("%", "")), reverse=True)
     
     return {
         "status": "success",
-        "keyword_filter": keyword,
         "total_matches": len(jobs_list),
         "jobs": jobs_list
+    }
+
+@app.get("/jobs/top-matches")
+def get_top_matches(threshold: int = 40):
+    """
+    Endpoint 4: Returns only jobs scoring above the specified threshold (default >= 40%),
+    sorted from highest to lowest score with attached matching skills.
+    """
+    conn = sqlite3.connect("jobs.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, title, company, location, url, remote FROM jobs")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    top_jobs = []
+    for row in rows:
+        score, matched_skills = calculate_score_and_skills(row[1])
+        
+        # Filter by threshold score
+        if score >= threshold:
+            top_jobs.append({
+                "id": row[0],
+                "title": row[1],
+                "company": row[2],
+                "location": row[3],
+                "url": row[4],
+                "remote": row[5],
+                "match_score": f"{score}%",
+                "matched_skills": matched_skills
+            })
+            
+    # Sort in descending order (highest score first)
+    top_jobs = sorted(top_jobs, key=lambda x: int(x["match_score"].replace("%", "")), reverse=True)
+    
+    return {
+        "status": "success",
+        "threshold_applied": f"{threshold}%",
+        "total_top_matches": len(top_jobs),
+        "jobs": top_jobs
+    }
+
+@app.get("/skills/learning-roadmap")
+def get_learning_roadmap():
+    """
+    Analyzes all saved jobs in SQLite, aggregates which skills appear most frequently,
+    and returns a learning roadmap showing which skills you have vs. which ones to learn.
+    """
+    conn = sqlite3.connect("jobs.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT title FROM jobs")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    # Track frequency of all skills found in job titles across the database
+    skill_demand_count = {skill: 0 for skill in MY_SKILLS}
+    other_skills_found = {}
+    
+    for row in rows:
+        title = row[1].lower() if len(row) > 1 and row[1] else ""
+        for skill in MY_SKILLS:
+            if skill in title:
+                skill_demand_count[skill] += 1
+                
+    # Sort your skills by market demand (how often they appear in fetched jobs)
+    sorted_market_skills = sorted(
+        [{"skill": skill, "jobs_found_in": count} for skill, count in skill_demand_count.items()],
+        key=lambda x: x["jobs_found_in"],
+        reverse=True
+    )
+    
+    return {
+        "status": "success",
+        "my_master_skills": MY_SKILLS,
+        "market_demand_analysis": sorted_market_skills,
+        "learning_suggestion": "Focus on the skills at the top of your market demand list that have lower coverage, or explore adding new complementary frameworks!"
     }

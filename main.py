@@ -1,8 +1,8 @@
 from fastapi import FastAPI, HTTPException
 import requests
-import sqlite3
 import os
 import google.generativeai as genai
+from database import init_db, get_db_connection
 
 app = FastAPI()
 
@@ -22,37 +22,7 @@ CANDIDATE_PROFILE = (
     "automated database architectures, and full-stack applications like NutriMed-CDS and inventory backends."
 )
 
-def init_db():
-    """Initialize SQLite database with jobs and applications tables."""
-    conn = sqlite3.connect("jobs.db")
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS jobs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT,
-            company TEXT,
-            location TEXT,
-            url TEXT UNIQUE,
-            remote TEXT
-        )
-    """)
-    
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS applications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            job_id INTEGER,
-            cover_letter TEXT,
-            pitch_summary TEXT,
-            status TEXT DEFAULT 'DRAFT',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (job_id) REFERENCES jobs (id)
-        )
-    """)
-    
-    conn.commit()
-    conn.close()
-
+# Initialize database on startup
 init_db()
 
 def calculate_score_and_skills(title: str):
@@ -94,7 +64,7 @@ def sync_jobs():
         "remote": str(job.get("remote"))
     } for job in raw_jobs if isinstance(job, dict)]
         
-    conn = sqlite3.connect("jobs.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
     for job in cleaned_jobs:
         cursor.execute("""
@@ -109,7 +79,7 @@ def sync_jobs():
 @app.get("/jobs")
 def get_saved_jobs(keyword: str = None):
     """Reads all saved jobs from SQLite and returns them with scores."""
-    conn = sqlite3.connect("jobs.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
     if keyword:
         cursor.execute("SELECT id, title, company, location, url, remote FROM jobs WHERE title LIKE ?", (f"%{keyword}%",))
@@ -131,7 +101,7 @@ def get_saved_jobs(keyword: str = None):
 @app.get("/jobs/top-matches")
 def get_top_matches(threshold: int = 40):
     """Returns only jobs scoring above the threshold."""
-    conn = sqlite3.connect("jobs.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT id, title, company, location, url, remote FROM jobs")
     rows = cursor.fetchall()
@@ -151,7 +121,7 @@ def get_top_matches(threshold: int = 40):
 @app.post("/jobs/{job_id}/tailor")
 def tailor_application(job_id: int):
     """Generates a tailored application package via Gemini and stores it as a DRAFT."""
-    conn = sqlite3.connect("jobs.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT id, title, company FROM jobs WHERE id = ?", (job_id,))
     job = cursor.fetchone()
@@ -184,7 +154,7 @@ def tailor_application(job_id: int):
             f"to contribute effectively to your engineering team...\n\nBest regards,\nYogendra"
         )
     
-    conn = sqlite3.connect("jobs.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO applications (job_id, cover_letter, pitch_summary, status)
@@ -205,13 +175,9 @@ def tailor_application(job_id: int):
 
 @app.get("/applications")
 def get_applications():
-    """
-    Milestone 9.1: Uses a SQL JOIN to fetch applications 
-    alongside their corresponding job title and company name.
-    """
-    conn = sqlite3.connect("jobs.db")
+    """Uses a SQL JOIN to fetch applications alongside job details."""
+    conn = get_db_connection()
     cursor = conn.cursor()
-    
     cursor.execute("""
         SELECT applications.id, jobs.title, jobs.company, applications.cover_letter, applications.status
         FROM applications
@@ -220,29 +186,21 @@ def get_applications():
     rows = cursor.fetchall()
     conn.close()
     
-    applications_list = []
-    for row in rows:
-        applications_list.append({
-            "application_id": row[0],
-            "job_title": row[1],
-            "company": row[2],
-            "cover_letter": row[3],
-            "status": row[4]
-        })
+    applications_list = [{
+        "application_id": row[0],
+        "job_title": row[1],
+        "company": row[2],
+        "cover_letter": row[3],
+        "status": row[4]
+    } for row in rows]
         
-    return {
-        "status": "success",
-        "total_applications": len(applications_list),
-        "applications": applications_list
-    }
+    return {"status": "success", "total_applications": len(applications_list), "applications": applications_list}
 
 @app.post("/applications/{app_id}/approve")
 def approve_application(app_id: int):
-    """Milestone 9.2: Human GO button to approve a draft application."""
-    conn = sqlite3.connect("jobs.db")
+    """Human GO button to approve a draft application."""
+    conn = get_db_connection()
     cursor = conn.cursor()
-    
-    # Check if application exists and fetch company info for message
     cursor.execute("""
         SELECT applications.id, jobs.company 
         FROM applications 
@@ -256,22 +214,17 @@ def approve_application(app_id: int):
         raise HTTPException(status_code=404, detail="Application not found")
         
     company_name = row[1]
-    
-    # Update status to APPROVED
     cursor.execute("UPDATE applications SET status = 'APPROVED' WHERE id = ?", (app_id,))
     conn.commit()
     conn.close()
     
-    return {
-        "status": f"Application #{app_id} APPROVED for {company_name}! Ready to send."
-    }
+    return {"status": f"Application #{app_id} APPROVED for {company_name}! Ready to send."}
 
 @app.post("/applications/{app_id}/reject")
 def reject_application(app_id: int):
-    """Milestone 9.3: Rejects an application draft if it doesn't fit."""
-    conn = sqlite3.connect("jobs.db")
+    """Rejects an application draft."""
+    conn = get_db_connection()
     cursor = conn.cursor()
-    
     cursor.execute("SELECT id FROM applications WHERE id = ?", (app_id,))
     if not cursor.fetchone():
         conn.close()
@@ -281,6 +234,56 @@ def reject_application(app_id: int):
     conn.commit()
     conn.close()
     
+    return {"status": f"Application #{app_id} REJECTED"}
+
+@app.get("/applications/{app_id}/export")
+def export_application(app_id: int):
+    """Validates approval, compiles email package, and saves to outbox/."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT applications.id, jobs.title, jobs.company, applications.cover_letter, applications.status
+        FROM applications
+        JOIN jobs ON applications.job_id = jobs.id
+        WHERE applications.id = ?
+    """, (app_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Application not found")
+        
+    app_id, job_title, company, cover_letter, status = row
+    
+    if status != "APPROVED":
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot export. Application status is '{status}'. It must be 'APPROVED' by human review first."
+        )
+        
+    subject = f"Application for {job_title} - Yogendra Pradhan"
+    signature = (
+        "\n\n---\n"
+        "Yogendra Pradhan\n"
+        "MCA Student | Full-Stack & Backend Developer\n"
+        "Email: yogendra@example.com | Phone: +91 XXXXX XXXXX\n"
+        "GitHub: https://github.com/ | LinkedIn: https://linkedin.com/"
+    )
+    email_body = f"Subject: {subject}\n\n{cover_letter}{signature}"
+    
+    safe_company_name = "".join(c for c in company if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+    filename = f"outbox/application_{safe_company_name}_{app_id}.txt"
+    
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(email_body)
+        
     return {
-        "status": f"Application #{app_id} REJECTED"
+        "status": "success",
+        "message": f"Application successfully exported and archived to {filename}",
+        "export_file_path": filename,
+        "email_package": {
+            "subject": subject,
+            "recipient_company": company,
+            "body": email_body
+        }
     }

@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CareerOps - Autonomous Job Application Command Center</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800 font-sans antialiased flex">
+
+    <!-- Sidebar Navigation -->
+    <aside class="w-64 bg-slate-900 text-slate-300 hidden md:flex flex-col justify-between border-r border-slate-800 p-6 sticky top-0 h-screen">
+        <div>
+            <!-- Brand Logo -->
+            <div class="flex items-center space-x-3 mb-10">
+                <div class="bg-blue-600 text-white p-2.5 rounded-xl shadow-lg shadow-blue-500/30">
+                    <i class="fa-solid fa-rocket text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-white tracking-wide text-lg">CareerOps</h1>
+                    <span class="text-xs text-blue-400 font-medium">Command Center v2.0</span>
+                </div>
+            </div>
+
+            <!-- Nav Links -->
+            <nav class="space-y-1.5">
+                <button onclick="switchView('top-matches')" id="nav-top" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-semibold bg-blue-600 text-white shadow-md shadow-blue-600/20 transition">
+                    <i class="fa-solid fa-fire text-amber-400 w-5"></i>
+                    <span>Top Matches</span>
+                </button>
+                <button onclick="switchView('all')" id="nav-all" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition">
+                    <i class="fa-solid fa-layer-group w-5"></i>
+                    <span>All Synced Jobs</span>
+                </button>
+            </nav>
+        </div>
+
+        <!-- Sidebar Footer Action -->
+        <div class="pt-6 border-t border-slate-800">
+            <button onclick="syncJobs()" class="w-full flex items-center justify-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-4 py-3 rounded-xl border border-slate-700 transition shadow-sm">
+                <i class="fa-solid fa-rotate text-blue-400"></i>
+                <span>Sync External Jobs</span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Wrapper -->
+    <div class="flex-1 flex flex-col min-h-screen">
+
+        <!-- Top Header Bar -->
+        <header class="bg-white border-b border-slate-200 py-4 px-8 flex justify-between items-center sticky top-0 z-30 shadow-xs">
+            <div class="flex items-center space-x-4">
+                <!-- Mobile Logo -->
+                <div class="md:hidden bg-blue-600 text-white p-2 rounded-lg">
+                    <i class="fa-solid fa-rocket"></i>
+                </div>
+                <div>
+                    <h2 id="header-title" class="text-xl font-bold text-slate-900 tracking-tight">🔥 Top Recommended Jobs</h2>
+                    <p class="text-xs text-slate-500">AI-tailored workflows curated for your skill stack</p>
+                </div>
+            </div>
+
+            <div class="flex items-center space-x-3">
+                <button onclick="syncJobs()" class="md:hidden bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-sm">
+                    <i class="fa-solid fa-rotate mr-1"></i> Sync
+                </button>
+                <div class="flex items-center space-x-2 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full text-xs font-semibold text-slate-600">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>System Active</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Dashboard Content Container -->
+        <main class="flex-1 max-w-6xl w-full mx-auto p-6 md:p-8">
+
+            <!-- Mobile View Switcher (Visible on small screens) -->
+            <div class="md:hidden flex space-x-2 mb-6 bg-slate-200 p-1 rounded-xl">
+                <button onclick="switchView('top-matches')" id="mobile-nav-top" class="flex-1 py-2 text-xs font-semibold rounded-lg bg-white text-slate-900 shadow-xs">Top Matches</button>
+                <button onclick="switchView('all')" id="mobile-nav-all" class="flex-1 py-2 text-xs font-medium rounded-lg text-slate-600">All Jobs</button>
+            </div>
+
+            <!-- Job Cards Output Grid -->
+            <div id="jobs-container" class="space-y-4">
+                <div class="bg-white p-12 rounded-2xl border border-slate-200 text-center shadow-xs">
+                    <i class="fa-solid fa-circle-notch fa-spin text-blue-600 text-2xl mb-3"></i>
+                    <p class="text-slate-400 text-sm font-medium">Loading recommendations...</p>
+                </div>
+            </div>
+
+            <!-- Load More Button Container (Hidden by default) -->
+            <div id="load-more-container" class="text-center mt-8 hidden">
+                <button onclick="loadMoreJobs()" class="bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs px-6 py-3 rounded-xl border border-slate-200 shadow-sm transition">
+                    ↓ Load More Jobs (<span id="remaining-count">0</span> remaining)
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <!-- Immersive Review Modal -->
+    <div id="modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center hidden z-50 p-4">
+        <div class="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden transform transition-all">
+            <!-- Modal Header -->
+            <div class="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-wand-magic-sparkles text-amber-400"></i>
+                    <h3 class="font-bold tracking-wide">AI Application Review Studio</h3>
+                </div>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-white transition text-lg font-bold w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-800">&times;</button>
+            </div>
+
+            <!-- Modal Body Content -->
+            <div id="modal-body" class="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                <!-- Dynamic content injected here -->
+            </div>
+
+            <!-- Modal Footer Actions -->
+            <div id="modal-actions" class="bg-slate-50 px-6 py-4 border-t border-slate-200 flex justify-end space-x-3">
+                <!-- Action buttons injected here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Frontend Script Logic -->
+    <script>
+        let currentEndpoint = '/jobs/top-matches';
+        let allJobsData = [];  // Holds full job list from backend
+        let currentIndex = 0;  // Tracks current render index
+        const pageSize = 30;   // Batch increment size
+
+        function switchView(viewType) {
+            const navTop = document.getElementById('nav-top');
+            const navAll = document.getElementById('nav-all');
+            const mobTop = document.getElementById('mobile-nav-top');
+            const mobAll = document.getElementById('mobile-nav-all');
+            const headerTitle = document.getElementById('header-title');
+
+            if (viewType === 'top-matches') {
+                currentEndpoint = '/jobs/top-matches';
+                headerTitle.innerText = "🔥 Top Recommended Jobs";
+
+                navTop.className = "w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-semibold bg-blue-600 text-white shadow-md shadow-blue-600/20 transition";
+                navAll.className = "w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition";
+                mobTop.className = "flex-1 py-2 text-xs font-semibold rounded-lg bg-white text-slate-900 shadow-xs";
+                mobAll.className = "flex-1 py-2 text-xs font-medium rounded-lg text-slate-600";
+            } else {
+                currentEndpoint = '/jobs';
+                headerTitle.innerText = "📋 All Synced Jobs";
+
+                navAll.className = "w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-semibold bg-blue-600 text-white shadow-md shadow-blue-600/20 transition";
+                navTop.className = "w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition";
+                mobAll.className = "flex-1 py-2 text-xs font-semibold rounded-lg bg-white text-slate-900 shadow-xs";
+                mobTop.className = "flex-1 py-2 text-xs font-medium rounded-lg text-slate-600";
+            }
+            loadJobs(currentEndpoint);
+        }
+
+        async function loadJobs(url) {
+            const container = document.getElementById('jobs-container');
+            const loadMoreContainer = document.getElementById('load-more-container');
+
+            container.innerHTML = `
+                <div class="bg-white p-12 rounded-2xl border border-slate-200 text-center shadow-xs">
+                    <i class="fa-solid fa-circle-notch fa-spin text-blue-600 text-2xl mb-3"></i>
+                    <p class="text-slate-400 text-sm font-medium">Fetching job listings...</p>
+                </div>
+            `;
+            loadMoreContainer.classList.add('hidden');
+
+            try {
+                let response = await fetch(`http://127.0.0.1:8000${url}`);
+                let data = await response.json();
+                allJobsData = data.jobs || [];
+                currentIndex = 0; // Reset pagination tracker
+
+                container.innerHTML = '';
+
+                if (allJobsData.length === 0) {
+                    container.innerHTML = `
+                        <div class="bg-white p-12 rounded-2xl border border-slate-200 text-center shadow-xs">
+                            <i class="fa-solid fa-folder-open text-slate-300 text-3xl mb-3"></i>
+                            <p class="text-slate-600 font-semibold">No jobs found in this feed.</p>
+                            <p class="text-slate-400 text-xs mt-1">Click <strong>Sync External Jobs</strong> in the sidebar to populate records.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Render initial batch of 30
+                renderBatch();
+
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="bg-red-50 p-6 rounded-2xl border border-red-200 text-center">
+                        <p class="text-red-600 text-sm font-semibold">Failed to connect to backend server. Ensure FastAPI is running.</p>
+                    </div>
+                `;
+            }
+        }
+
+        function renderBatch() {
+            const container = document.getElementById('jobs-container');
+            const loadMoreContainer = document.getElementById('load-more-container');
+            const remainingSpan = document.getElementById('remaining-count');
+
+            const nextBatch = allJobsData.slice(currentIndex, currentIndex + pageSize);
+
+            // ✅ FIX: Build all cards as one HTML string first,
+            // then do a single insertAdjacentHTML call.
+            // Previously used innerHTML += inside the loop which
+            // re-serialized & re-parsed the entire container on
+            // every card — destroying onclick handlers and breaking
+            // subsequent Load More clicks after the 2nd batch.
+            let batchHtml = '';
+            nextBatch.forEach(job => {
+                batchHtml += `
+                    <div class="bg-white p-6 rounded-2xl shadow-xs border border-slate-200 hover:border-blue-500/50 hover:shadow-md transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div class="space-y-1.5 flex-1">
+                            <div class="flex items-center space-x-3 flex-wrap gap-y-1">
+                                <h3 class="text-base font-bold text-slate-900">${job.title}</h3>
+                                <span class="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-2.5 py-0.5 rounded-full text-xs font-bold flex items-center space-x-1">
+                                    <i class="fa-solid fa-bullseye text-[10px] mr-1"></i> ${job.match_score} Match
+                                </span>
+                            </div>
+                            <p class="text-slate-500 text-xs font-medium flex items-center space-x-2">
+                                <span><i class="fa-solid fa-building text-slate-400 mr-1"></i> ${job.company}</span>
+                                <span>•</span>
+                                <span><i class="fa-solid fa-location-dot text-slate-400 mr-1"></i> ${job.location || 'Remote'}</span>
+                            </p>
+                        </div>
+                        <div class="flex items-center space-x-2 w-full md:w-auto justify-end">
+                            <a href="${job.url}" target="_blank" class="p-2.5 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 transition" title="View Source">
+                                <i class="fa-solid fa-arrow-up-right-from-square text-xs"></i>
+                            </a>
+                            <button onclick="tailorJob(${job.id})" class="flex-1 md:flex-none bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl transition shadow-sm shadow-blue-600/20 flex items-center justify-center space-x-1.5">
+                                <i class="fa-solid fa-bolt text-amber-300"></i>
+                                <span>Tailor Application</span>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            // Single DOM write — existing nodes are never touched
+            container.insertAdjacentHTML('beforeend', batchHtml);
+
+            currentIndex += pageSize;
+
+            const remaining = allJobsData.length - currentIndex;
+            if (remaining > 0) {
+                remainingSpan.innerText = remaining;
+                loadMoreContainer.classList.remove('hidden');
+            } else {
+                loadMoreContainer.classList.add('hidden');
+            }
+        }
+
+        function loadMoreJobs() {
+            renderBatch();
+        }
+
+        async function syncJobs() {
+            try {
+                let res = await fetch('http://127.0.0.1:8000/sync', { method: 'POST' });
+                let data = await res.json();
+                alert(data.message || "Jobs synced successfully!");
+                loadJobs(currentEndpoint);
+            } catch (err) {
+                alert("Failed to sync jobs.");
+            }
+        }
+
+        async function tailorJob(jobId) {
+            const modal = document.getElementById('modal');
+            const modalBody = document.getElementById('modal-body');
+            const modalActions = document.getElementById('modal-actions');
+
+            modal.classList.remove('hidden');
+            modalBody.innerHTML = `
+                <div class="py-16 text-center space-y-3">
+                    <i class="fa-solid fa-circle-notch fa-spin text-blue-600 text-3xl"></i>
+                    <p class="text-slate-500 text-sm font-medium">Gemini is synthesizing your custom pitch & cover letter...</p>
+                </div>
+            `;
+            modalActions.innerHTML = `<button onclick="closeModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-semibold transition">Cancel</button>`;
+
+            try {
+                let response = await fetch(`http://127.0.0.1:8000/jobs/${jobId}/tailor`, { method: 'POST' });
+                let data = await response.json();
+
+                if (data.status === 'success') {
+                    const appId = data.application_id;
+
+                    modalBody.innerHTML = `
+                        <div class="bg-blue-50 border border-blue-100 p-4 rounded-xl">
+                            <span class="text-[10px] font-bold text-blue-600 uppercase tracking-wider block mb-1">AI Pitch Strategy</span>
+                            <p class="text-xs text-blue-900 font-medium leading-relaxed">${data.pitch_summary}</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Generated Cover Letter Draft (Editable):</label>
+                            <textarea class="w-full h-56 p-4 border border-slate-200 rounded-xl text-xs text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 leading-relaxed">${data.cover_letter}</textarea>
+                        </div>
+                    `;
+
+                    modalActions.innerHTML = `
+                        <button onclick="rejectApp(${appId})" class="bg-red-50 hover:bg-red-100 text-red-700 font-semibold text-xs px-4 py-2.5 rounded-xl border border-red-200 transition">
+                            <i class="fa-solid fa-xmark mr-1"></i> Reject
+                        </button>
+                        <button onclick="approveApp(${appId})" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-5 py-2.5 rounded-xl shadow-sm transition flex items-center space-x-1">
+                            <i class="fa-solid fa-check mr-1"></i>
+                            <span>Approve & Archive</span>
+                        </button>
+                    `;
+                } else {
+                    modalBody.innerHTML = `<p class="text-red-500 text-center py-8 text-sm">Failed to generate application draft.</p>`;
+                }
+            } catch (err) {
+                modalBody.innerHTML = `<p class="text-red-500 text-center py-8 text-sm">Error communicating with backend API.</p>`;
+            }
+        }
+
+        async function approveApp(appId) {
+            const modalBody = document.getElementById('modal-body');
+            const modalActions = document.getElementById('modal-actions');
+
+            modalBody.innerHTML = `
+                <div class="py-16 text-center space-y-3">
+                    <i class="fa-solid fa-circle-notch fa-spin text-emerald-600 text-3xl"></i>
+                    <p class="text-slate-500 text-sm font-medium">Enforcing safety gate & archiving package to disk...</p>
+                </div>
+            `;
+            modalActions.innerHTML = '';
+
+            try {
+                await fetch(`http://127.0.0.1:8000/applications/${appId}/approve`, { method: 'POST' });
+                let exportRes = await fetch(`http://127.0.0.1:8000/applications/${appId}/export`);
+                let exportData = await exportRes.json();
+
+                if (exportData.status === 'success') {
+                    const emailBody = exportData.email_package.body;
+
+                    modalBody.innerHTML = `
+                        <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center space-y-1">
+                            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase">Approved & Dispatched</span>
+                            <p class="text-xs text-slate-600">Archived locally to: <code class="text-blue-600 font-mono">${exportData.export_file_path}</code></p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Final Formatted Email Output:</label>
+                            <textarea id="export-text" readonly class="w-full h-52 p-4 border border-slate-200 rounded-xl text-xs text-slate-700 bg-slate-50 font-mono leading-relaxed">${emailBody}</textarea>
+                        </div>
+                    `;
+
+                    modalActions.innerHTML = `
+                        <button onclick="closeModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-semibold transition">Close</button>
+                        <button onclick="copyEmailText()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs px-5 py-2.5 rounded-xl shadow-sm transition flex items-center space-x-1.5">
+                            <i class="fa-regular fa-clipboard"></i>
+                            <span>Copy Email to Clipboard</span>
+                        </button>
+                    `;
+                }
+            } catch (err) {
+                modalBody.innerHTML = `<p class="text-red-500 text-center py-8 text-sm">Error processing approval workflow.</p>`;
+            }
+        }
+
+        async function rejectApp(appId) {
+            const modalBody = document.getElementById('modal-body');
+            const modalActions = document.getElementById('modal-actions');
+
+            try {
+                await fetch(`http://127.0.0.1:8000/applications/${appId}/reject`, { method: 'POST' });
+                modalBody.innerHTML = `
+                    <div class="py-12 text-center space-y-2">
+                        <i class="fa-solid fa-circle-xmark text-red-500 text-3xl"></i>
+                        <p class="text-slate-800 font-bold text-sm">Application Draft Rejected</p>
+                        <p class="text-slate-400 text-xs">Closing window...</p>
+                    </div>
+                `;
+                modalActions.innerHTML = '';
+                setTimeout(() => closeModal(), 1200);
+            } catch (err) {
+                alert("Failed to reject application.");
+            }
+        }
+
+        function copyEmailText() {
+            const textarea = document.getElementById('export-text');
+            textarea.select();
+            navigator.clipboard.writeText(textarea.value).then(() => {
+                alert("📋 Copied successfully! Ready to paste into Gmail or LinkedIn.");
+            });
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.add('hidden');
+        }
+
+        // Initialize view on load
+        loadJobs('/jobs/top-matches');
+    </script>
+</body>
+</html>

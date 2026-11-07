@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 import requests
+import sqlite3
 import os
 import google.generativeai as genai
 from database import init_db, get_db_connection
@@ -24,6 +26,11 @@ CANDIDATE_PROFILE = (
 
 # Initialize database on startup
 init_db()
+
+@app.get("/")
+def home():
+    """Serves the frontend CareerOps dashboard HTML file."""
+    return FileResponse("index.html")
 
 def calculate_score_and_skills(title: str):
     """Calculates score (0-100%) with bonus/penalties and matched skills."""
@@ -77,26 +84,26 @@ def sync_jobs():
     return {"status": "success", "message": f"Successfully synced {len(cleaned_jobs)} jobs."}
 
 @app.get("/jobs")
-def get_saved_jobs(keyword: str = None):
-    """Reads all saved jobs from SQLite and returns them with scores."""
+def get_saved_jobs(keyword: str = None, limit: int = 50):
+    """Reads saved jobs from SQLite with a default limit for fast loading."""
     conn = get_db_connection()
     cursor = conn.cursor()
     if keyword:
-        cursor.execute("SELECT id, title, company, location, url, remote FROM jobs WHERE title LIKE ?", (f"%{keyword}%",))
+        cursor.execute("SELECT id, title, company, location, url, remote FROM jobs WHERE title LIKE ? LIMIT ?", (f"%{keyword}%", limit))
     else:
-        cursor.execute("SELECT id, title, company, location, url, remote FROM jobs")
+        cursor.execute("SELECT id, title, company, location, url, remote FROM jobs LIMIT ?", (limit,))
     rows = cursor.fetchall()
     conn.close()
     
     jobs_list = []
     for row in rows:
-        score, matched_skills = calculate_score_and_skills(row[1])
+        score, matched_skills = calculate_score_and_skills(row["title"])
         jobs_list.append({
-            "id": row[0], "title": row[1], "company": row[2],
-            "location": row[3], "url": row[4], "remote": row[5],
+            "id": row["id"], "title": row["title"], "company": row["company"],
+            "location": row["location"], "url": row["url"], "remote": row["remote"],
             "match_score": f"{score}%", "matched_skills": matched_skills
         })
-    return {"status": "success", "jobs": sorted(jobs_list, key=lambda x: int(x["match_score"].replace("%", "")), reverse=True)}
+    return {"status": "success", "jobs": sorted(jobs_ist if 'jobs_ist' in locals() else jobs_list, key=lambda x: int(x["match_score"].replace("%", "")), reverse=True)}
 
 @app.get("/jobs/top-matches")
 def get_top_matches(threshold: int = 40):

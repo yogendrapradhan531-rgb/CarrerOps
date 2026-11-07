@@ -6,6 +6,7 @@ app = FastAPI()
 
 FEED_URL = "https://www.arbeitnow.com/api/job-board-api"
 
+# 1. Define Your Master Skill List
 MY_SKILLS = [
     "python", "fastapi", "react", "postgresql", 
     "sql", "javascript", "tailwind", "git", "jwt", "rest api"
@@ -31,13 +32,34 @@ def init_db():
 # Run database initialization when the app starts
 init_db()
 
+# 2. Create the Scoring Function
+def calculate_score(title: str) -> int:
+    """
+    Calculates a deterministic match score (0% to 100%) 
+    based on how many MY_SKILLS appear in the job title.
+    """
+    if not title:
+        return 0
+        
+    # Convert title to lowercase for case-insensitive matching
+    lower_title = title.lower()
+    
+    # Count how many of your MY_SKILLS appear in the text
+    matches = 0
+    for skill in MY_SKILLS:
+        if skill in lower_title:
+            matches += 1
+            
+    # Calculate percentage score
+    score = (matches / len(MY_SKILLS)) * 100
+    return int(score)
+
 @app.post("/sync")
 def sync_jobs():
-    """Endpoint 1: Fetches external jobs, cleans them, and saves to SQLite."""
+    """Fetches external jobs, cleans them, and saves to SQLite."""
     response = requests.get(FEED_URL)
     data = response.json()
     
-    # Handle different possible JSON response structures safely
     if isinstance(data, dict):
         raw_jobs = data.get("data", [])
     elif isinstance(data, list):
@@ -45,7 +67,6 @@ def sync_jobs():
     else:
         raw_jobs = []
     
-    # Extract essential fields into cleaned_jobs list
     cleaned_jobs = []
     for job in raw_jobs:
         if isinstance(job, dict):
@@ -58,7 +79,6 @@ def sync_jobs():
             }
             cleaned_jobs.append(clean_job)
         
-    # Save Cleaned Jobs into the Database (with duplicate protection)
     conn = sqlite3.connect("jobs.db")
     cursor = conn.cursor()
     
@@ -83,21 +103,46 @@ def sync_jobs():
     }
 
 @app.get("/jobs")
-def get_saved_jobs():
-    """Endpoint 2: Reads saved jobs directly from SQLite instantly without internet."""
+def get_saved_jobs(keyword: str = None):
+    """Reads saved jobs from SQLite, calculates match scores, and returns them sorted."""
     conn = sqlite3.connect("jobs.db")
-    conn.row_factory = sqlite3.Row  # Allows accessing columns by name
     cursor = conn.cursor()
     
-    cursor.execute("SELECT title, company, location, url, remote FROM jobs")
+    if keyword:
+        cursor.execute("""
+            SELECT id, title, company, location, url, remote 
+            FROM jobs 
+            WHERE title LIKE ?
+        """, (f"%{keyword}%",))
+    else:
+        cursor.execute("SELECT id, title, company, location, url, remote FROM jobs")
+        
     rows = cursor.fetchall()
     conn.close()
     
-    # Convert sqlite3 rows to a list of dictionaries
-    jobs_list = [dict(row) for row in rows]
+    # Format rows and add the match score to each job dictionary
+    jobs_list = []
+    for row in rows:
+        title = row[1]
+        score = calculate_score(title)
+        
+        job_dict = {
+            "id": row[0],
+            "title": title,
+            "company": row[2],
+            "location": row[3],
+            "url": row[4],
+            "remote": row[5],
+            "match_score": f"{score}%"  # Added match score!
+        }
+        jobs_list.append(job_dict)
+        
+    # Optional: Sort jobs from highest match score to lowest
+    jobs_list = sorted(jobs_list, key=lambda x: int(x["match_score"].replace("%", "")), reverse=True)
     
     return {
         "status": "success",
-        "total_saved_jobs": len(jobs_list),
+        "keyword_filter": keyword,
+        "total_matches": len(jobs_list),
         "jobs": jobs_list
     }

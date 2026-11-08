@@ -56,6 +56,35 @@ def calculate_score_and_skills(title: str):
             
     return max(0, min(int(base_score), 100)), matched_skills
 
+GITHUB_USERNAME = "yogendrapradhan531-rgb"
+
+def get_my_github_projects():
+    """Fetches all public repositories from your real GitHub account."""
+    url = f"https://api.github.com/users/{GITHUB_USERNAME}/repos"
+    headers = {"User-Agent": "CareerOps-Agent"}
+    
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            print(f"GitHub API Error: {response.status_code}")
+            return []
+            
+        repos = response.json()
+        projects = []
+        for r in repos:
+            if not r.get("fork"):
+                projects.append({
+                    "name": r.get("name"),
+                    "description": r.get("description") or "Full-stack / AI project",
+                    "language": r.get("language") or "Python",
+                    "url": r.get("html_url"),
+                    "stars": r.get("stargazers_count", 0)
+                })
+        return projects
+    except Exception as e:
+        print(f"Failed to fetch GitHub repos: {e}")
+        return []
+
 @app.post("/sync")
 def sync_jobs():
     """Fetches external jobs, cleans them, and saves to SQLite."""
@@ -103,7 +132,7 @@ def get_saved_jobs(keyword: str = None, limit: int = 50):
             "location": row["location"], "url": row["url"], "remote": row["remote"],
             "match_score": f"{score}%", "matched_skills": matched_skills
         })
-    return {"status": "success", "jobs": sorted(jobs_ist if 'jobs_ist' in locals() else jobs_list, key=lambda x: int(x["match_score"].replace("%", "")), reverse=True)}
+    return {"status": "success", "jobs": sorted(jobs_list, key=lambda x: int(x["match_score"].replace("%", "")), reverse=True)}
 
 @app.get("/jobs/top-matches")
 def get_top_matches(threshold: int = 40):
@@ -146,7 +175,6 @@ def tailor_application(job_id: int):
         f"Master technical skills: {', '.join(MY_SKILLS)}.\n\n"
         f"Write a concise 2-paragraph tailored cover letter and a brief 1-sentence pitch summary connecting Yogendra's real experience directly to what this role needs. Do NOT invent fake projects."
     )
-    
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(prompt)
@@ -161,6 +189,7 @@ def tailor_application(job_id: int):
             f"to contribute effectively to your engineering team...\n\nBest regards,\nYogendra"
         )
     
+    # 1. Save draft application in database
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -170,14 +199,48 @@ def tailor_application(job_id: int):
     app_id = cursor.lastrowid
     conn.commit()
     conn.close()
+
+    # ─────────────────────────────────────────────────────────────
+    # 2. GENERATE AND SAVE THE TAILORED RESUME
+    # ─────────────────────────────────────────────────────────────
+    os.makedirs("outbox", exist_ok=True)
+    clean_company = company.replace(" ", "_").replace("/", "_")
+    
+    repos = get_my_github_projects()
+
+    try:
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        template_path = os.path.join(BASE_DIR, "resume_template.md")
+
+        if not os.path.exists(template_path):
+            template_path = os.path.join(BASE_DIR, "outbox", "resume_template.md")
+
+        with open(template_path, "r", encoding="utf-8") as f:
+            template = f.read()
+
+        tailored_project_text = f"""
+#### CareerOps – Autonomous Job Intelligence & Application Engine
+*Python, FastAPI, SQLite, Tailwind CSS, Docker, GitHub API, REST APIs* | [GitHub](https://github.com/{GITHUB_USERNAME})
+- Built an automated ETL pipeline that ingests, cleans, and normalizes external job listings into SQLite with UNIQUE constraints.
+- Engineered a deterministic skill-scoring algorithm with seniority penalties and junior bonuses to surface top-fit opportunities.
+- Implemented human-in-the-loop approval workflows, dynamic context injection from GitHub, and automated outbox packaging.
+"""
+        final_resume = template.replace("{{TAILORED_PROJECTS}}", tailored_project_text)
+        resume_filename = f"outbox/resume_{clean_company}_{app_id}.md"
+        with open(resume_filename, "w", encoding="utf-8") as f:
+            f.write(final_resume)
+    except Exception as e:
+        print(f"Error generating tailored resume: {e}")
+        resume_filename = None
     
     return {
         "status": "success",
-        "message": "Application draft generated successfully under human review gate.",
+        "message": "Application draft and tailored resume generated successfully.",
         "application_id": app_id,
         "approval_gate": "DRAFT",
         "pitch_summary": pitch_summary,
-        "cover_letter": cover_letter
+        "cover_letter": cover_letter,
+        "tailored_resume_path": resume_filename
     }
 
 @app.get("/applications")
@@ -274,7 +337,7 @@ def export_application(app_id: int):
         "Yogendra Pradhan\n"
         "MCA Student | Full-Stack & Backend Developer\n"
         "Email: yogendra@example.com | Phone: +91 XXXXX XXXXX\n"
-        "GitHub: https://github.com/ | LinkedIn: https://linkedin.com/"
+        "GitHub: https://github.com/yogendrapradhan531-rgb | LinkedIn: https://linkedin.com/"
     )
     email_body = f"Subject: {subject}\n\n{cover_letter}{signature}"
     
@@ -294,3 +357,9 @@ def export_application(app_id: int):
             "body": email_body
         }
     }
+
+if __name__ == "__main__":
+    my_repos = get_my_github_projects()
+    print(f"\n🎉 Successfully found {len(my_repos)} repositories for {GITHUB_USERNAME}:")
+    for p in my_repos:
+        print(f"- {p['name']} ({p['language']}): {p['url']}")

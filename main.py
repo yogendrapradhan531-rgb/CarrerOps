@@ -8,8 +8,6 @@ from database import init_db, get_db_connection
 
 app = FastAPI()
 
-FEED_URL = "https://www.arbeitnow.com/api/job-board-api"
-
 # Configure Gemini API
 # genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -87,30 +85,61 @@ def get_my_github_projects():
 
 @app.post("/sync")
 def sync_jobs():
-    """Fetches external jobs, cleans them, and saves to SQLite."""
-    response = requests.get(FEED_URL)
-    data = response.json()
-    raw_jobs = data.get("data", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
-    
-    cleaned_jobs = [{
-        "title": job.get("title"),
-        "company": job.get("company_name"),
-        "location": job.get("location"),
-        "url": job.get("url"),
-        "remote": str(job.get("remote"))
-    } for job in raw_jobs if isinstance(job, dict)]
-        
+    """Fetches external jobs from multiple sources, cleans them, and saves to SQLite."""
+    all_jobs = []
+
+    # Source 1: Arbeitnow API
+    try:
+        r1 = requests.get("https://www.arbeitnow.com/api/job-board-api")
+        data1 = r1.json()
+        raw_jobs1 = data1.get("data", []) if isinstance(data1, dict) else (data1 if isinstance(data1, list) else [])
+        for job in raw_jobs1:
+            if isinstance(job, dict):
+                all_jobs.append({
+                    "title": job.get("title"),
+                    "company": job.get("company_name"),
+                    "location": job.get("location"),
+                    "url": job.get("url"),
+                    "remote": str(job.get("remote"))
+                })
+    except Exception as e:
+        print(f"Error syncing Arbeitnow: {e}")
+
+    # Source 2: Remotive API (Software Development Jobs)
+    try:
+        r2 = requests.get("https://remotive.com/api/remote-jobs?category=software-dev")
+        data2 = r2.json()
+        raw_jobs2 = data2.get("jobs", []) if isinstance(data2, dict) else []
+        for job in raw_jobs2:
+            if isinstance(job, dict):
+                all_jobs.append({
+                    "title": job.get("title"),
+                    "company": job.get("company_name"),
+                    "location": job.get("candidate_required_location") or "Remote",
+                    "url": job.get("url"),
+                    "remote": "True"
+                })
+    except Exception as e:
+        print(f"Error syncing Remotive: {e}")
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    for job in cleaned_jobs:
+    inserted_count = 0
+    for job in all_jobs:
         cursor.execute("""
             INSERT OR IGNORE INTO jobs (title, company, location, url, remote)
             VALUES (?, ?, ?, ?, ?)
         """, (job["title"], job["company"], job["location"], job["url"], job["remote"]))
+        if cursor.rowcount > 0:
+            inserted_count += 1
+            
     conn.commit()
     conn.close()
     
-    return {"status": "success", "message": f"Successfully synced {len(cleaned_jobs)} jobs."}
+    return {
+        "status": "success", 
+        "message": f"Successfully synced {len(all_jobs)} total listings ({inserted_count} new entries added)."
+    }
 
 @app.get("/jobs")
 def get_saved_jobs(keyword: str = None, limit: int = 50):
@@ -336,8 +365,8 @@ def export_application(app_id: int):
         "\n\n---\n"
         "Yogendra Pradhan\n"
         "MCA Student | Full-Stack & Backend Developer\n"
-        "Email: yogendra@example.com | Phone: +91 XXXXX XXXXX\n"
-        "GitHub: https://github.com/yogendrapradhan531-rgb | LinkedIn: https://linkedin.com/"
+        "Email: yogendrapradhan531@gmail.com | Phone: +91-9382020883\n"
+        "GitHub: https://github.com/yogendrapradhan531-rgb | LinkedIn: https://linkedin.com/in/yogendrapradhan"
     )
     email_body = f"Subject: {subject}\n\n{cover_letter}{signature}"
     

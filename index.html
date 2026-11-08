@@ -230,6 +230,27 @@
             }, 3000);
         }
 
+        // ─── Platform Badge Helper ─────────────────────────────────────────────
+        function getPlatformBadge(url) {
+            if (!url) return { name: "Direct", class: "bg-slate-100 text-slate-700 border-slate-200" };
+            
+            const lowerUrl = url.toLowerCase();
+            
+            if (lowerUrl.includes("arbeitnow.com")) {
+                return { name: "Arbeitnow", class: "bg-blue-50 text-blue-700 border-blue-200" };
+            } else if (lowerUrl.includes("remotive.com")) {
+                return { name: "Remotive", class: "bg-purple-50 text-purple-700 border-purple-200" };
+            } else if (lowerUrl.includes("linkedin.com")) {
+                return { name: "LinkedIn", class: "bg-sky-50 text-sky-700 border-sky-200" };
+            } else if (lowerUrl.includes("naukri.com")) {
+                return { name: "Naukri", class: "bg-orange-50 text-orange-700 border-orange-200" };
+            } else if (lowerUrl.includes("wellfound.com")) {
+                return { name: "Wellfound", class: "bg-teal-50 text-teal-700 border-teal-200" };
+            } else {
+                return { name: "External", class: "bg-slate-100 text-slate-700 border-slate-200" };
+            }
+        }
+
         // ─── View Switcher ──────────────────────────────────────────────────────
         function switchView(viewType) {
             const navTop  = document.getElementById('nav-top');
@@ -300,7 +321,6 @@
             }
 
             try {
-                // Construct relative URL (works seamlessly local or inside Docker)
                 let url = `${currentBaseEndpoint}?skip=${currentSkip}&limit=${PAGE_LIMIT}`;
                 if (activeKeyword) {
                     url += `&keyword=${encodeURIComponent(activeKeyword)}`;
@@ -328,12 +348,12 @@
                     return;
                 }
 
-                // Render Cards with Company Initials & Smart Badges
+                // Render Cards with Platform Badges & Match Scores
                 let batchHtml = '';
                 jobs.forEach(job => {
                     const initial = (job.company || 'C').charAt(0).toUpperCase();
+                    const platform = getPlatformBadge(job.url);
                     
-                    // Match score pill styles
                     let badgeClass = 'bg-slate-100 text-slate-700 border-slate-200';
                     let scoreIcon = 'fa-solid fa-chart-simple';
                     if (job.match_score && job.match_score.includes('%')) {
@@ -363,10 +383,11 @@
                                             <span>${job.match_score || 'New'}</span>
                                         </span>
                                     </div>
-                                    <p class="text-slate-500 text-xs font-semibold flex items-center space-x-2">
+                                    <p class="text-slate-500 text-xs font-semibold flex items-center space-x-2 flex-wrap gap-y-1">
                                         <span><i class="fa-solid fa-building text-slate-400 mr-1"></i>${job.company}</span>
                                         <span>•</span>
                                         <span><i class="fa-solid fa-location-dot text-slate-400 mr-1"></i>${job.location || 'Remote (Global)'}</span>
+                                        <span class="border px-2 py-0.2 rounded text-[10px] font-bold ${platform.class}">${platform.name}</span>
                                         ${job.remote ? '<span class="bg-purple-50 text-purple-700 border border-purple-200 text-[10px] px-2 py-0.2 rounded font-bold">Remote</span>' : ''}
                                     </p>
                                 </div>
@@ -533,55 +554,35 @@
                         </div>
                     `;
                     modalActions.innerHTML = `
-                        <button onclick="closeModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition">Close</button>
-                        <button onclick="copyEmailText()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-md shadow-blue-600/20 transition flex items-center space-x-1.5 active:scale-95">
-                            <i class="fa-regular fa-clipboard"></i>
-                            <span>Copy Email to Clipboard</span>
+                        <button onclick="navigator.clipboard.writeText(document.getElementById('export-text').value); showToast('Copied to clipboard!', true);" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition flex items-center space-x-2">
+                            <i class="fa-solid fa-copy"></i>
+                            <span>Copy Email Package</span>
                         </button>
+                        <button onclick="closeModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl transition">Close</button>
                     `;
                 }
             } catch (err) {
-                modalBody.innerHTML = `<p class="text-red-500 text-center py-8 text-xs font-bold">Error processing approval workflow.</p>`;
+                showToast('Export failed.', false);
+                closeModal();
             }
         }
 
-        // ─── Reject App ─────────────────────────────────────────────────────────
         async function rejectApp(appId) {
-            const modalBody = document.getElementById('modal-body');
-            const modalActions = document.getElementById('modal-actions');
-
             try {
                 await fetch(`/applications/${appId}/reject`, { method: 'POST' });
-                showToast('Draft Rejected & Removed', false);
-                modalBody.innerHTML = `
-                    <div class="py-12 text-center space-y-2">
-                        <i class="fa-solid fa-circle-xmark text-red-500 text-3xl"></i>
-                        <p class="text-slate-900 font-bold text-sm">Application Draft Rejected</p>
-                        <p class="text-slate-400 text-xs">Closing window...</p>
-                    </div>
-                `;
-                modalActions.innerHTML = '';
-                setTimeout(() => closeModal(), 1000);
-            } catch (err) {
-                showToast('Failed to reject application.', false);
-            }
-        }
-
-        // ─── Clipboard Helper ───────────────────────────────────────────────────
-        function copyEmailText() {
-            const textarea = document.getElementById('export-text');
-            textarea.select();
-            navigator.clipboard.writeText(textarea.value).then(() => {
-                showToast('📋 Copied to clipboard! Ready to paste into Gmail.', true);
-            });
+                showToast('Application draft rejected.', false);
+            } catch (err) {}
+            closeModal();
         }
 
         function closeModal() {
             document.getElementById('modal').classList.add('hidden');
         }
 
-        // ─── Initial Load ───────────────────────────────────────────────────────
-        resetAndLoad();
+        // Initialize dashboard on load
+        window.addEventListener('DOMContentLoaded', () => {
+            resetAndLoad();
+        });
     </script>
 </body>
 </html>
